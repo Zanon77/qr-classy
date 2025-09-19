@@ -6,14 +6,14 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { studentStorage, attendanceStorage, classStorage, Student, AttendanceRecord } from '@/lib/storage';
-import { UserCheck, Camera, Users, ClipboardList, LogOut, UserPlus, QrCode, CheckCircle, Mail, MessageCircle } from 'lucide-react';
+import { studentStorage, attendanceStorage, classStorage, gradeStorage, Student, AttendanceRecord, Grade } from '@/lib/storage';
+import { UserCheck, Camera, Users, ClipboardList, LogOut, UserPlus, QrCode, CheckCircle, Mail, MessageCircle, GraduationCap, BookOpen } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 
 const TeacherDashboard = () => {
   const { user, logout } = useAuth();
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState<'attendance' | 'students' | 'records'>('attendance');
+  const [activeTab, setActiveTab] = useState<'attendance' | 'students' | 'records' | 'reportcard'>('attendance');
 
   // Student form state
   const [studentForm, setStudentForm] = useState({
@@ -28,6 +28,11 @@ const TeacherDashboard = () => {
   const [students, setStudents] = useState<Student[]>(studentStorage.getAllStudents());
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>(attendanceStorage.getAllAttendance());
   const [classes] = useState(classStorage.getAllClasses());
+  const [grades, setGrades] = useState<Grade[]>(gradeStorage.getAllGrades());
+
+  // Report card form state
+  const [selectedStudent, setSelectedStudent] = useState<string>('');
+  const [gradeForm, setGradeForm] = useState<{[subject: string]: number}>({});
 
   const handleTakeAttendance = () => {
     // For now, we'll simulate QR code scanning
@@ -113,6 +118,50 @@ const TeacherDashboard = () => {
     toast({
       title: "SMS Sent",
       description: `Attendance notification sent to ${parentPhone} for ${studentName}`,
+    });
+  };
+
+  const handleSubmitGrades = (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!selectedStudent) {
+      toast({
+        title: "No Student Selected",
+        description: "Please select a student first",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const student = students.find(s => s.id === selectedStudent);
+    if (!student) return;
+
+    const studentClass = classes.find(c => c.name === student.class);
+    if (!studentClass) return;
+
+    // Save grades for each subject
+    Object.entries(gradeForm).forEach(([subject, marks]) => {
+      if (marks > 0) {
+        const newGrade: Grade = {
+          id: `grade-${Date.now()}-${subject}`,
+          studentId: selectedStudent,
+          subject,
+          marks,
+          maxMarks: 100,
+          date: new Date().toLocaleDateString(),
+          teacherId: user?.id || '',
+        };
+        gradeStorage.addGrade(newGrade);
+      }
+    });
+
+    setGrades(gradeStorage.getAllGrades());
+    setGradeForm({});
+    setSelectedStudent('');
+    
+    toast({
+      title: "Grades Saved",
+      description: "Report card has been updated successfully",
     });
   };
 
@@ -211,6 +260,14 @@ const TeacherDashboard = () => {
           >
             <ClipboardList className="w-4 h-4" />
             <span>View Records</span>
+          </Button>
+          <Button
+            variant={activeTab === 'reportcard' ? 'default' : 'ghost'}
+            onClick={() => setActiveTab('reportcard')}
+            className="flex items-center space-x-2"
+          >
+            <GraduationCap className="w-4 h-4" />
+            <span>Report Card</span>
           </Button>
         </div>
 
@@ -476,6 +533,145 @@ const TeacherDashboard = () => {
                 )}
               </CardContent>
             </Card>
+          )}
+
+          {activeTab === 'reportcard' && (
+            <>
+              <Card className="dashboard-card">
+                <CardHeader>
+                  <CardTitle className="flex items-center space-x-2">
+                    <GraduationCap className="w-5 h-5" />
+                    <span>Create Report Card</span>
+                  </CardTitle>
+                  <CardDescription>
+                    Select a student and input marks for each subject
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <form onSubmit={handleSubmitGrades} className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="student">Select Student *</Label>
+                      <Select value={selectedStudent} onValueChange={setSelectedStudent}>
+                        <SelectTrigger className="input-field">
+                          <SelectValue placeholder="Choose a student" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {students.map((student) => (
+                            <SelectItem key={student.id} value={student.id}>
+                              {student.name} - {student.class}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {selectedStudent && (() => {
+                      const student = students.find(s => s.id === selectedStudent);
+                      const studentClass = classes.find(c => c.name === student?.class);
+                      return studentClass ? (
+                        <div className="space-y-3">
+                          <h4 className="font-medium">Enter Marks (Out of 100)</h4>
+                          {studentClass.subjects.map((subject) => (
+                            <div key={subject} className="flex items-center space-x-3">
+                              <Label className="min-w-[120px]">{subject}</Label>
+                              <Input
+                                type="number"
+                                min="0"
+                                max="100"
+                                value={gradeForm[subject] || ''}
+                                onChange={(e) => setGradeForm(prev => ({
+                                  ...prev,
+                                  [subject]: parseInt(e.target.value) || 0
+                                }))}
+                                placeholder="0-100"
+                                className="input-field flex-1"
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      ) : null;
+                    })()}
+
+                    {selectedStudent && (
+                      <Button type="submit" className="w-full btn-primary">
+                        Save Report Card
+                      </Button>
+                    )}
+                  </form>
+                </CardContent>
+              </Card>
+
+              <Card className="dashboard-card">
+                <CardHeader>
+                  <CardTitle className="flex items-center space-x-2">
+                    <BookOpen className="w-5 h-5" />
+                    <span>Student Report Cards</span>
+                  </CardTitle>
+                  <CardDescription>
+                    View and print existing report cards
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {students.length === 0 ? (
+                    <p className="text-muted-foreground text-center py-8">
+                      No students added yet
+                    </p>
+                  ) : (
+                    <div className="space-y-4 max-h-96 overflow-y-auto">
+                      {students.map((student) => {
+                        const studentGrades = grades.filter(g => g.studentId === student.id);
+                        const totalMarks = studentGrades.reduce((sum, grade) => sum + grade.marks, 0);
+                        const totalPossible = studentGrades.length * 100;
+                        const percentage = totalPossible > 0 ? Math.round((totalMarks / totalPossible) * 100) : 0;
+                        
+                        return (
+                          <div 
+                            key={student.id} 
+                            className="p-4 bg-muted/30 rounded-lg space-y-3"
+                          >
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <h4 className="font-medium">{student.name}</h4>
+                                <p className="text-sm text-muted-foreground">{student.class}</p>
+                              </div>
+                              {studentGrades.length > 0 && (
+                                <Badge 
+                                  variant="outline" 
+                                  className={
+                                    percentage >= 75 
+                                      ? "bg-success/10 text-success border-success/20"
+                                      : percentage >= 50 
+                                      ? "bg-accent/10 text-accent border-accent/20"
+                                      : "bg-destructive/10 text-destructive border-destructive/20"
+                                  }
+                                >
+                                  {percentage}%
+                                </Badge>
+                              )}
+                            </div>
+                            
+                            {studentGrades.length > 0 ? (
+                              <div className="grid grid-cols-2 gap-2 text-sm">
+                                {studentGrades.map((grade) => (
+                                  <div key={grade.id} className="flex justify-between">
+                                    <span className="text-muted-foreground">{grade.subject}:</span>
+                                    <span className="font-medium">{grade.marks}/100</span>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="text-sm text-muted-foreground italic">
+                                No grades recorded yet
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </>
           )}
         </div>
       </div>
